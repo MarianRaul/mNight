@@ -54,15 +54,15 @@
     .actions{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
     a{ color:#9db6ff; text-decoration:none; }
     a:hover{ text-decoration:underline; }
-    .watched .title{ text-decoration: line-through; opacity:.75; }
-    .watched{ opacity:.88; }
+    .watched .title{ text-decoration: line-through; opacity:.23; }
+    .watched{ opacity:.40; }
     footer{ max-width:1100px; margin:0 auto; padding:6px 18px 22px; color:var(--muted); font-size:12px; }
   </style>
 </head>
 <body>
   <header>
     <h1>🍿 Movie Night</h1>
-    <p class="sub">Two lists, zero login. Everything saves locally in this browser.</p>
+    <p class="sub">Grab the popcorn</p>
   </header>
 
   <main class="wrap">
@@ -71,21 +71,17 @@
         <div>
           <label for="owner">Add to</label>
           <select id="owner">
-            <option value="me">My movies</option>
-            <option value="her">Her movies</option>
+            <option value="raul">Raul's Movies</option>
+            <option value="roxi">Roxi's Movies</option>
           </select>
         </div>
-        <div style="flex:1; min-width:220px;">
-          <label for="title">Movie title</label>
-          <input id="title" placeholder="e.g. Arrival" />
+		 <div style="flex:1; min-width:220px;">
+          <label for="imdb">IMDb id</label>
+          <input id="imdb" placeholder="e.g. tt0032599" />
         </div>
         <div style="flex:1; min-width:220px;">
           <label for="notes">Notes (optional)</label>
           <input id="notes" placeholder="e.g. sci-fi / slow burn / 2016" />
-        </div>
-        <div style="flex:1; min-width:220px;">
-          <label for="link">Link (optional)</label>
-          <input id="link" placeholder="IMDb / trailer / JustWatch..." />
         </div>
         <div>
           <label>&nbsp;</label>
@@ -101,30 +97,27 @@
     <section class="grid">
       <section class="panel">
         <div class="colhead">
-          <h2>My movies</h2>
-          <div class="count" id="countMe"></div>
+          <h2>Raul's Movies</h2>
+          <div class="count" id="countRaul"></div>
         </div>
-        <div class="list" id="listMe"></div>
+        <div class="list" id="listRaul"></div>
       </section>
 
       <section class="panel">
         <div class="colhead">
-          <h2>Her movies</h2>
-          <div class="count" id="countHer"></div>
+          <h2>Roxi's Movies</h2>
+          <div class="count" id="countRoxi"></div>
         </div>
-        <div class="list" id="listHer"></div>
+        <div class="list" id="listRoxi"></div>
       </section>
     </section>
   </main>
 
-  <footer>
-    Tip: you can host this free on GitHub Pages / Netlify by uploading this single file.
-  </footer>
-
 <script>
   const STORAGE_KEY = "movie-night-v1";
+  const OMDB_API_KEY = "fb7bedc5";
 
-  /** @type {{id:string, owner:"me"|"her", title:string, notes?:string, link?:string, watched:boolean, createdAt:number}[]} */
+  /** @type {{id:string, owner:"raul"|"roxi", title:string, notes?:string, link?:string, watched:boolean, createdAt:number}[]} */
   let movies = load();
 
   const $ = (id) => document.getElementById(id);
@@ -156,36 +149,44 @@
     return "https://" + t;
   }
 
-  function addMovie(){
-    const owner = $("owner").value;
-    const title = $("title").value.trim();
-    const notes = $("notes").value.trim();
-    const linkRaw = $("link").value.trim();
+ async function addMovie(){
+  const owner = $("owner").value;
+  const notes = $("notes").value.trim();
+  const imdbInput = $("imdb").value.trim();
 
-    if(!title){
-      $("title").focus();
-      return;
-    }
-
-    const movie = {
-      id: uid(),
-      owner,
-      title,
-      notes: notes || "",
-      link: normalizeUrl(linkRaw),
-      watched: false,
-      createdAt: Date.now()
-    };
-
-    movies.unshift(movie);
-    save();
-    render();
-
-    $("title").value = "";
-    $("notes").value = "";
-    $("link").value = "";
-    $("title").focus();
+  const imdbId = extractImdbId(imdbInput);
+  if(!imdbId){
+    alert("Please add a valid IMDb ID or link.");
+    $("imdb").focus();
+    return;
   }
+
+  const imdbData = await fetchMovieFromImdb(imdbId);
+  if(!imdbData || !imdbData.title){
+    alert("Could not fetch movie from IMDb.");
+    return;
+  }
+
+  const movie = {
+    id: uid(),
+    owner,
+    title: imdbData.title,
+    notes: notes || " ",
+	imdbInfo:`${imdbData.year} • ${imdbData.genre}`,
+    imdbId,
+    posterUrl: imdbData.posterUrl,
+    watched: false,
+    createdAt: Date.now()
+  };
+
+  movies.unshift(movie);
+  save();
+  render();
+
+ 
+  $("notes").value = "";
+  $("imdb").value = "";
+}
 
   function toggleWatched(id){
     const m = movies.find(x => x.id === id);
@@ -208,14 +209,14 @@
   }
 
   function render(){
-    const me = movies.filter(m => m.owner === "me");
-    const her = movies.filter(m => m.owner === "her");
+    const raul = movies.filter(m => m.owner === "raul");
+    const roxi = movies.filter(m => m.owner === "roxi");
 
-    $("countMe").textContent = `${me.length} total`;
-    $("countHer").textContent = `${her.length} total`;
+    $("countRaul").textContent = `${raul.length} total`;
+    $("countRoxi").textContent = `${roxi.length} total`;
 
-    $("listMe").innerHTML = me.length ? me.map(cardHtml).join("") : emptyHtml("No movies yet — add one above.");
-    $("listHer").innerHTML = her.length ? her.map(cardHtml).join("") : emptyHtml("No movies yet — add one above.");
+    $("listRaul").innerHTML = raul.length ? raul.map(cardHtml).join("") : emptyHtml("No movies yet — add one above.");
+    $("listRoxi").innerHTML = roxi.length ? roxi.map(cardHtml).join("") : emptyHtml("No movies yet — add one above.");
 
     // wire buttons after render
     document.querySelectorAll("[data-toggle]").forEach(btn => {
@@ -229,26 +230,66 @@
   function emptyHtml(msg){
     return `<div class="item"><div class="meta">${escapeHtml(msg)}</div></div>`;
   }
+  
+  
+  function extractImdbId(input){
+		const t = (input || "").trim();
+		if(!t) return "";
+		// match tt1234567 anywhere in the string
+		const m = t.match(/tt\d{7,8}/);
+		return m ? m[0] : "";
+	}
+	
+  async function fetchMovieFromImdb(imdbId){
+	if(!imdbId || !OMDB_API_KEY) return null;
+
+	const url = `https://www.omdbapi.com/?i=${encodeURIComponent(imdbId)}&apikey=${encodeURIComponent(OMDB_API_KEY)}`;
+	const res = await fetch(url);
+	if(!res.ok) return null;
+
+	const data = await res.json();
+	if(data.Response === "False") return null;
+
+	return {
+		title: data.Title || "",
+		posterUrl: data.Poster && data.Poster !== "N/A" ? data.Poster : "",
+		year: data.Year || "",
+		runtime: data.Runtime || "",
+		genre: data.Genre || ""
+	};
+}
 
   function cardHtml(m){
-    const notes = m.notes ? `<div class="meta">${escapeHtml(m.notes)}</div>` : "";
-    const link = m.link ? `<div class="meta"><a href="${escapeAttr(m.link)}" target="_blank" rel="noopener">Open link</a></div>` : "";
-    return `
-      <div class="item ${m.watched ? "watched" : ""}">
-        <div class="row">
+  const img = m.posterUrl
+    ? `<img src="${escapeAttr(m.posterUrl)}" alt="" style="width:70px;height:105px;object-fit:cover;border-radius:10px;border:1px solid var(--line);" />`
+    : "";
+
+  const notes = m.notes ? `<div class="meta">${escapeHtml(m.notes)}</div>` : "";
+  const imdb = m.imdbId ? `<div class="meta"><a href="https://www.imdb.com/title/${escapeAttr(m.imdbId)}/" target="_blank" rel="noopener">IMDb</a></div>` : "";
+  const imdbInfo = m.imdbInfo ? `<div class="meta">${escapeHtml(m.imdbInfo)}</div>` : "";
+
+  return `
+    <div class="item ${m.watched ? "watched" : ""}">
+      <div class="row">
+        <div style="display:flex; gap:12px;">
+          ${img}
           <div>
             <div class="title">${escapeHtml(m.title)}</div>
             ${notes}
-            ${link}
-          </div>
-          <div class="actions">
-            <button class="secondary" data-toggle="${m.id}">${m.watched ? "Unwatch" : "Watched"}</button>
-            <button class="danger" data-remove="${m.id}">Delete</button>
+			${imdbInfo}
+            ${imdb}
           </div>
         </div>
+        <div class="actions">
+          <button class="secondary" data-toggle="${m.id}">${m.watched ? "Unwatch" : "Watched"}</button>
+          <button class="danger" data-remove="${m.id}">Delete</button>
+        </div>
       </div>
-    `;
-  }
+    </div>
+  `;
+}
+  
+  
 
   function escapeHtml(s){
     return (s || "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -257,10 +298,8 @@
     return escapeHtml(s).replace(/"/g, "&quot;");
   }
 
-  $("addBtn").addEventListener("click", addMovie);
-  $("title").addEventListener("keydown", (e) => {
-    if(e.key === "Enter") addMovie();
-  });
+  $("addBtn").addEventListener("click", () => addMovie());
+  $("imdb").addEventListener("keydown", (e) => { if(e.key === "Enter") addMovie(); });
   $("clearWatchedBtn").addEventListener("click", clearWatched);
 
   render();
