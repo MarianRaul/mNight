@@ -48,15 +48,29 @@
       padding:12px; background: rgba(15,17,23,.7);
       display:grid; gap:8px;
     }
-    .row{ display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
-    .title{ font-weight:750; }
+    .row{ display:flex; gap:12px; align-items:flex-start; }
+	.content{flex:1; min-width:0; /* THIS IS THE KEY LINE */ }
+    .title{font-weight:750; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
     .meta{ color:var(--muted); font-size:13px; line-height:1.3; }
-    .actions{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+	.actions{  display:flex;  gap:8px;  align-items:center;  justify-content:flex-end;  flex-shrink:0;}
     a{ color:#9db6ff; text-decoration:none; }
     a:hover{ text-decoration:underline; }
     .watched .title{ text-decoration: line-through; opacity:.23; }
     .watched{ opacity:.40; }
     footer{ max-width:1100px; margin:0 auto; padding:6px 18px 22px; color:var(--muted); font-size:12px; }
+	.pickBanner{ display:flex;  gap:14px;  align-items:flex-start;}
+    .pickPoster{  width:120px;  height:180px;  border-radius:14px;  border:1px solid var(--line);  background: rgba(15,17,23,.7);  overflow:hidden;  flex-shrink:0;}
+	.pickPoster img{  width:100%;  height:100%;  object-fit:cover;  display:block;}
+	.pickInfo{  flex:1;  min-width:0;}
+	.pickTitle{  font-weight:800;  font-size:20px;  margin-bottom:6px;  line-height:1.15;}
+	.pickActions{  margin-top:12px;  display:flex;  gap:10px;  flex-wrap:wrap;}
+	.pickClose{  flex-shrink:0;}
+	.icon-btn{  width:36px;  height:36px;  border-radius:50%;  display:inline-flex;  align-items:center;  justify-content:center;  background:#222838;  border:1px solid var(--line);  font-size:18px;  cursor:pointer;  transition: transform .12s ease, background .12s ease, opacity .12s ease;}
+	.icon-btn:hover{  transform: translateY(-1px);  background:#2a3145;}
+	.icon-btn.danger:hover{  background:#3a1c24;}
+	.icon-btn.primary{  background:#2a7cff;  color:#061327;}
+	.icon-btn.primary:hover{  background:#3b8cff;}
+	.icon-btn[disabled]{  opacity:.6;  cursor:default;  transform:none;}
   </style>
 </head>
 <body>
@@ -93,6 +107,27 @@
         </div>
       </div>
     </section>
+	
+	<section class="panel" id="pickPanel" style="display:none;">
+	  <div class="pickBanner">
+		<div class="pickPoster" id="pickPoster"></div>
+
+		<div class="pickInfo">
+		  <div class="pickTitle" id="pickTitle"></div>
+		  <div class="meta" id="pickMeta"></div>
+		  <div class="meta" id="pickNotes"></div>
+		  <div class="meta" id="pickImdb"></div>
+
+		  <div class="pickActions">
+			<button class="secondary" id="pickWatchedClearBtn">Watched & Clear</button>
+		  </div>
+		</div>
+
+		<div class="pickClose">
+		  <button class="danger" id="pickClearBtn" title="Clear tonight's pick">✕</button>
+		</div>
+	  </div>
+	</section>
 
     <section class="grid">
       <section class="panel">
@@ -116,6 +151,19 @@
 <script>
   const STORAGE_KEY = "movie-night-v1";
   const OMDB_API_KEY = "fb7bedc5";
+  const PICK_KEY = "movie-night-tonights-pick-v1";
+
+  let pickId = loadPickId();
+
+  function loadPickId(){
+    try { return localStorage.getItem(PICK_KEY) || ""; }
+    catch { return ""; }
+  }
+  function savePickId(id){
+    pickId = id || "";
+    if(!pickId) localStorage.removeItem(PICK_KEY);
+    else localStorage.setItem(PICK_KEY, pickId);
+  }
 
   /** @type {{id:string, owner:"raul"|"roxi", title:string, notes?:string, link?:string, watched:boolean, createdAt:number}[]} */
   let movies = load();
@@ -209,8 +257,19 @@
   }
 
   function render(){
-    const raul = movies.filter(m => m.owner === "raul");
-    const roxi = movies.filter(m => m.owner === "roxi");
+    function sortByWatched(a, b){
+	// unwatched first, watched last
+	if (a.watched === b.watched) return b.createdAt - a.createdAt;
+		return a.watched ? 1 : -1;
+	}
+
+	const raul = movies
+		.filter(m => m.owner === "raul")
+		.sort(sortByWatched);
+
+	const roxi = movies
+	  .filter(m => m.owner === "roxi")
+	  .sort(sortByWatched);
 
     $("countRaul").textContent = `${raul.length} total`;
     $("countRoxi").textContent = `${roxi.length} total`;
@@ -225,12 +284,63 @@
     document.querySelectorAll("[data-remove]").forEach(btn => {
       btn.addEventListener("click", () => removeMovie(btn.dataset.remove));
     });
+	
+	document.querySelectorAll("[data-pick]").forEach(btn => {
+  btn.addEventListener("click", () => setTonightPick(btn.dataset.pick));
+});
+document.querySelectorAll("[data-clear-pick]").forEach(btn => {
+  btn.addEventListener("click", clearTonightPick);
+});
+	renderPickBanner();
   }
 
   function emptyHtml(msg){
     return `<div class="item"><div class="meta">${escapeHtml(msg)}</div></div>`;
   }
   
+  function renderPickBanner(){
+	  const panel = document.getElementById("pickPanel");
+	  if(!panel) return;
+
+	  if(!pickId){
+		panel.style.display = "none";
+		return;
+	  }
+
+	  const m = movies.find(x => x.id === pickId);
+	  if(!m){
+		clearTonightPick();
+		panel.style.display = "none";
+		return;
+	  }
+
+	  panel.style.display = "";
+
+	  // Poster (bigger than list)
+	  const posterDiv = document.getElementById("pickPoster");
+	  if(m.posterUrl){
+		posterDiv.innerHTML = `<img src="${escapeAttr(m.posterUrl)}" alt="">`;
+	  }else{
+		posterDiv.innerHTML = "";
+	  }
+
+	  document.getElementById("pickTitle").textContent = `Tonight’s pick: ${m.title}`;
+
+	  document.getElementById("pickMeta").textContent =
+		`${m.owner === "raul" ? "Rau's Movie" : "Roxi's Movie"}${m.watched ? " • (already watched)" : ""}`;
+
+	  document.getElementById("pickNotes").textContent = m.notes ? m.notes : "";
+
+	  const imdbLine = document.getElementById("pickImdb");
+	  if(m.imdbId){
+		imdbLine.innerHTML = `<a href="https://www.imdb.com/title/${escapeAttr(m.imdbId)}/" target="_blank" rel="noopener">IMDb</a>`;
+	  }else{
+		imdbLine.innerHTML = "";
+	  }
+
+	  document.getElementById("pickWatchedClearBtn").onclick = watchedAndClearPick;
+	  document.getElementById("pickClearBtn").onclick = clearTonightPick;
+	}
   
   function extractImdbId(input){
 		const t = (input || "").trim();
@@ -257,7 +367,32 @@
 		runtime: data.Runtime || "",
 		genre: data.Genre || ""
 	};
-}
+  }
+  
+	function setTonightPick(id){
+	  const m = movies.find(x => x.id === id);
+	  if(!m) return;
+	  savePickId(id);
+	  render();
+	}
+
+	function clearTonightPick(){
+	  savePickId("");
+	  render();
+	}
+
+	function watchedAndClearPick(){
+	  if(!pickId) return;
+
+	  const m = movies.find(x => x.id === pickId);
+	  if(m && !m.watched) m.watched = true;
+
+	  save();            // persist watched status
+	  clearTonightPick(); // clears pick + rerenders
+	}
+
+  
+
 
   function cardHtml(m){
   const img = m.posterUrl
@@ -267,11 +402,17 @@
   const notes = m.notes ? `<div class="meta">${escapeHtml(m.notes)}</div>` : "";
   const imdb = m.imdbId ? `<div class="meta"><a href="https://www.imdb.com/title/${escapeAttr(m.imdbId)}/" target="_blank" rel="noopener">IMDb</a></div>` : "";
   const imdbInfo = m.imdbInfo ? `<div class="meta">${escapeHtml(m.imdbInfo)}</div>` : "";
-
+  let tonightBtn = "";
+  
+  if(!pickId){
+    tonightBtn = `<button class="secondary" data-pick="${m.id}">🎬</button>`;
+  }else if(pickId === m.id){
+    tonightBtn = `<button class="secondary" disabled>🎬</button>`;
+  }
   return `
     <div class="item ${m.watched ? "watched" : ""}">
       <div class="row">
-        <div style="display:flex; gap:12px;">
+        <div class="content" style="display:flex; gap:12px;">
           ${img}
           <div>
             <div class="title">${escapeHtml(m.title)}</div>
@@ -281,8 +422,10 @@
           </div>
         </div>
         <div class="actions">
-          <button class="secondary" data-toggle="${m.id}">${m.watched ? "Unwatch" : "Watched"}</button>
-          <button class="danger" data-remove="${m.id}">Delete</button>
+		  ${tonightBtn}
+          <button class="secondary" data-toggle="${m.id}">${m.watched ?  "🙈" : "👁️"}</button>
+          <button class="danger" data-remove="${m.id}">🗑️</button>
+		  
         </div>
       </div>
     </div>
