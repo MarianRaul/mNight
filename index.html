@@ -146,6 +146,12 @@
         <div class="list" id="listRoxi"></div>
       </section>
     </section>
+
+	<div><label>&nbsp;</label>
+		<button class="secondary" id="exportBtn">Export</button>
+		<button class="secondary" id="importBtn">Import</button>
+		<input type="file" id="importFile" accept="application/json" style="display:none;" />
+	</div>
   </main>
 
 <script>
@@ -440,10 +446,112 @@ document.querySelectorAll("[data-clear-pick]").forEach(btn => {
   function escapeAttr(s){
     return escapeHtml(s).replace(/"/g, "&quot;");
   }
+  
+  function exportData(){
+  const data = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    movies,
+    pickId: pickId || ""
+  };
+
+  const json = JSON.stringify(data, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `movie-night-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  URL.revokeObjectURL(url);
+}
+
+function isValidMovie(movie){
+  return movie
+    && typeof movie === "object"
+    && typeof movie.id === "string"
+    && (movie.owner === "me" || movie.owner === "her")
+    && typeof movie.title === "string"
+    && typeof movie.watched === "boolean";
+}
+
+async function importDataFromFile(file){
+  if(!file) return;
+
+  const text = await file.text();
+
+  let parsed;
+  try{
+    parsed = JSON.parse(text);
+  }catch{
+    alert("That file is not valid JSON.");
+    return;
+  }
+
+  if(!parsed || !Array.isArray(parsed.movies)){
+    alert("This file does not look like a movie list export.");
+    return;
+  }
+
+  const importedMovies = parsed.movies.filter(isValidMovie).map(movie => ({
+    id: typeof movie.id === "string" ? movie.id : uid(),
+    owner: movie.owner,
+    title: movie.title || "",
+    notes: typeof movie.notes === "string" ? movie.notes : "",
+    imdbId: typeof movie.imdbId === "string" ? movie.imdbId : "",
+    posterUrl: typeof movie.posterUrl === "string" ? movie.posterUrl : "",
+    watched: !!movie.watched,
+    createdAt: typeof movie.createdAt === "number" ? movie.createdAt : Date.now()
+  }));
+
+  if(importedMovies.length === 0){
+    alert("No valid movies were found in that file.");
+    return;
+  }
+
+  const replace = confirm(
+    "Press OK to replace your current list.\nPress Cancel to merge imported movies into the current list."
+  );
+
+  if(replace){
+    movies = importedMovies;
+  }else{
+    const existingIds = new Set(movies.map(m => m.id));
+    const deduped = importedMovies.filter(m => !existingIds.has(m.id));
+    movies = [...deduped, ...movies];
+  }
+
+  if(typeof parsed.pickId === "string"){
+    const pickStillExists = movies.some(m => m.id === parsed.pickId);
+    pickId = pickStillExists ? parsed.pickId : "";
+  }else{
+    pickId = "";
+  }
+
+  save();
+  if(typeof savePickId === "function"){
+    savePickId(pickId);
+  }
+  render();
+
+  alert("Import complete.");
+}
 
   $("addBtn").addEventListener("click", () => addMovie());
   $("imdb").addEventListener("keydown", (e) => { if(e.key === "Enter") addMovie(); });
   $("clearWatchedBtn").addEventListener("click", clearWatched);
+  $("exportBtn").addEventListener("click", exportData);
+  $("importBtn").addEventListener("click", () => {
+	$("importFile").value = "";
+	$("importFile").click();
+  });
+  $("importFile").addEventListener("change", async (e) => {
+	const file = e.target.files && e.target.files[0];
+	await importDataFromFile(file);
+  });
 
   render();
 </script>
