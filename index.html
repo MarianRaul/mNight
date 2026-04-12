@@ -477,7 +477,6 @@ function isValidMovie(movie){
     && typeof movie.title === "string"
     && typeof movie.watched === "boolean";
 }
-
 async function importDataFromFile(file){
   if(!file) return;
 
@@ -496,16 +495,53 @@ async function importDataFromFile(file){
     return;
   }
 
-  const importedMovies = parsed.movies.filter(isValidMovie).map(movie => ({
-    id: typeof movie.id === "string" ? movie.id : uid(),
-    owner: movie.owner,
-    title: movie.title || "",
-    notes: typeof movie.notes === "string" ? movie.notes : "",
-    imdbId: typeof movie.imdbId === "string" ? movie.imdbId : "",
-    posterUrl: typeof movie.posterUrl === "string" ? movie.posterUrl : "",
-    watched: !!movie.watched,
-    createdAt: typeof movie.createdAt === "number" ? movie.createdAt : Date.now()
-  }));
+  async function normalizeImportedMovie(movie){
+    const imdbId = typeof movie.imdbId === "string" ? movie.imdbId : "";
+
+    let fetched = null;
+    const missingTitle = !movie.title || !String(movie.title).trim();
+    const missingPoster = !movie.posterUrl || !String(movie.posterUrl).trim();
+    const missingImdbInfo = !movie.imdbInfo || !String(movie.imdbInfo).trim();
+
+    if(imdbId && (missingTitle || missingPoster || missingImdbInfo)){
+      try{
+        fetched = await fetchMovieFromImdb(imdbId);
+      }catch(err){
+        console.error("Failed to re-fetch IMDb data for", imdbId, err);
+      }
+    }
+
+    return {
+      id: typeof movie.id === "string" ? movie.id : uid(),
+      owner: movie.owner === "roxi" ? "roxi" : "raul",
+      title: (typeof movie.title === "string" && movie.title.trim())
+        ? movie.title.trim()
+        : (fetched?.title || ""),
+      notes: typeof movie.notes === "string" ? movie.notes : "",
+      imdbInfo: (typeof movie.imdbInfo === "string" && movie.imdbInfo.trim())
+        ? movie.imdbInfo.trim()
+        : [fetched?.year, fetched?.genre].filter(Boolean).join(" • "),
+      imdbId,
+      posterUrl: (typeof movie.posterUrl === "string" && movie.posterUrl.trim())
+        ? movie.posterUrl.trim()
+        : (fetched?.posterUrl || ""),
+      watched: !!movie.watched,
+      createdAt: typeof movie.createdAt === "number" ? movie.createdAt : Date.now()
+    };
+  }
+
+  const validMovies = parsed.movies.filter(movie =>
+    movie &&
+    typeof movie === "object" &&
+    (movie.owner === "raul" || movie.owner === "roxi") &&
+    typeof movie.watched === "boolean" &&
+    (
+      (typeof movie.title === "string" && movie.title.trim()) ||
+      (typeof movie.imdbId === "string" && movie.imdbId.trim())
+    )
+  );
+
+  const importedMovies = await Promise.all(validMovies.map(normalizeImportedMovie));
 
   if(importedMovies.length === 0){
     alert("No valid movies were found in that file.");
@@ -519,8 +555,13 @@ async function importDataFromFile(file){
   if(replace){
     movies = importedMovies;
   }else{
-    const existingIds = new Set(movies.map(m => m.id));
-    const deduped = importedMovies.filter(m => !existingIds.has(m.id));
+    function movieKey(movie){
+      if(movie.imdbId) return `imdb:${movie.imdbId}`;
+      return `fallback:${movie.owner}:${movie.title.trim().toLowerCase()}`;
+    }
+
+    const existingKeys = new Set(movies.map(movieKey));
+    const deduped = importedMovies.filter(m => !existingKeys.has(movieKey(m)));
     movies = [...deduped, ...movies];
   }
 
@@ -532,14 +573,11 @@ async function importDataFromFile(file){
   }
 
   save();
-  if(typeof savePickId === "function"){
-    savePickId(pickId);
-  }
+  savePickId(pickId);
   render();
 
   alert("Import complete.");
 }
-
   $("addBtn").addEventListener("click", () => addMovie());
   $("imdb").addEventListener("keydown", (e) => { if(e.key === "Enter") addMovie(); });
   $("clearWatchedBtn").addEventListener("click", clearWatched);
